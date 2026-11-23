@@ -39,3 +39,29 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Test Snapshots
+scripts/snapshots/
+
+# Local avatar upload storage
+storage/
+public/uploads/avatars/*
+!public/uploads/avatars/.gitkeep
+
+# Backups and scratch storage
+backups/
+*backups/
+*.backup*
+scratch/
+
+# Migration (server and client)
+server/node_modules/
+server/.env
+server/.env.*
+!server/.env.example
+client/node_modules/
+client/dist/
+client/.env
+client/.env.*
+!client/.env.example
+

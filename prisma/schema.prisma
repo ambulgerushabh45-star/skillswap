@@ -1,25 +1,49 @@
 // Prisma Schema for SkillSwap Platform
-// Configured with SQLite for zero-config local development (no external Postgres server needed)
+// Configured with MongoDB (UUID string ids mapped to _id)
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  output        = "../server/node_modules/.prisma/client"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "mongodb"
+  url      = env("MONGODB_URL")
+}
+
+enum MatchStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum AttendanceStatus {
+  GOING
+  MAYBE
+  CANCELLED
+}
+
+enum ProficiencyLevel {
+  Beginner
+  Intermediate
+  Advanced
+  Expert
 }
 
 model User {
-  id           String    @id @default(uuid())
+  id           String    @id @default(uuid()) @map("_id")
   name         String
   email        String    @unique
   passwordHash String?   // Nullable for Google OAuth users
   bio          String?
   location     String?
-  avatarUrl    String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  latitude     Float?
+  longitude    Float?
+  avatarUrl          String?
+  emailNotifications Boolean?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   // Relationships
   skillsTeach     UserSkillsTeach[]
@@ -31,10 +55,11 @@ model User {
   reviewsGiven    Review[]          @relation("ReviewsGiven")
   reviewsReceived Review[]          @relation("ReviewsReceived")
   messages        Message[]
+  oauthAccounts   OAuthAccount[]
 }
 
 model Skill {
-  id       String            @id @default(uuid())
+  id       String            @id @default(uuid()) @map("_id")
   name     String            @unique
   category String            // e.g., "Programming", "Music", "Languages", "Design", "Cooking"
 
@@ -45,19 +70,20 @@ model Skill {
 }
 
 model UserSkillsTeach {
-  id          String   @id @default(uuid())
+  id          String           @id @default(uuid()) @map("_id")
   userId      String
   skillId     String
-  proficiency String   // e.g., "Beginner", "Intermediate", "Advanced", "Expert"
+  proficiency ProficiencyLevel // e.g., "Beginner", "Intermediate", "Advanced", "Expert"
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  skill       Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill       Skill            @relation(fields: [skillId], references: [id], onDelete: Cascade)
 
   @@unique([userId, skillId])
+  @@index([skillId])
 }
 
 model UserSkillsLearn {
-  id      String   @id @default(uuid())
+  id      String   @id @default(uuid()) @map("_id")
   userId  String
   skillId String
 
@@ -65,51 +91,64 @@ model UserSkillsLearn {
   skill   Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
 
   @@unique([userId, skillId])
+  @@index([skillId])
 }
 
 model Match {
-  id             String   @id @default(uuid())
+  id             String      @id @default(uuid()) @map("_id")
   userAId        String
   userBId        String
   matchedSkillId String
-  status         String   @default("PENDING") // PENDING, ACCEPTED, DECLINED
-  createdAt      DateTime @default(now())
+  status         MatchStatus @default(PENDING) // PENDING, ACCEPTED, DECLINED
+  createdAt      DateTime    @default(now())
 
-  userA          User     @relation("UserAMatches", fields: [userAId], references: [id], onDelete: Cascade)
-  userB          User     @relation("UserBMatches", fields: [userBId], references: [id], onDelete: Cascade)
-  matchedSkill   Skill    @relation(fields: [matchedSkillId], references: [id], onDelete: Cascade)
+  userA          User        @relation("UserAMatches", fields: [userAId], references: [id], onDelete: Cascade)
+  userB          User        @relation("UserBMatches", fields: [userBId], references: [id], onDelete: Cascade)
+  matchedSkill   Skill       @relation(fields: [matchedSkillId], references: [id], onDelete: Cascade)
   messages       Message[]
+
+  @@unique([userAId, userBId, matchedSkillId])
+  @@index([userAId])
+  @@index([userBId])
+  @@index([matchedSkillId])
 }
 
 model Event {
-  id          String          @id @default(uuid())
-  hostId      String
-  title       String
-  description String
-  location    String
-  lat         Float?
-  lng         Float?
-  dateTime    DateTime
-  createdAt   DateTime        @default(now())
+  id           String          @id @default(uuid()) @map("_id")
+  hostId       String
+  title        String
+  description  String
+  location     String
+  lat          Float?
+  lng          Float?
+  dateTime     DateTime
+  maxAttendees Int?
+  cancelledAt  DateTime?
+  createdAt    DateTime        @default(now())
 
-  host        User            @relation("HostedEvents", fields: [hostId], references: [id], onDelete: Cascade)
-  attendees   EventAttendee[]
+  host         User            @relation("HostedEvents", fields: [hostId], references: [id], onDelete: Cascade)
+  attendees    EventAttendee[]
+
+  @@index([dateTime])
+  @@index([hostId])
 }
 
 model EventAttendee {
-  id      String @id @default(uuid())
+  id      String           @id @default(uuid()) @map("_id")
   eventId String
   userId  String
-  status  String @default("GOING") // GOING, MAYBE, CANCELLED
+  status  AttendanceStatus @default(GOING) // GOING, MAYBE, CANCELLED
 
-  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event   Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
+  @@index([userId])
+  @@index([eventId])
 }
 
 model Review {
-  id         String   @id @default(uuid())
+  id         String   @id @default(uuid()) @map("_id")
   fromUserId String
   toUserId   String
   rating     Int      // 1 to 5 stars
@@ -118,10 +157,14 @@ model Review {
 
   fromUser   User     @relation("ReviewsGiven", fields: [fromUserId], references: [id], onDelete: Cascade)
   toUser     User     @relation("ReviewsReceived", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId])
+  @@index([fromUserId])
 }
 
 model Message {
-  id        String   @id @default(uuid())
+  id        String   @id @default(uuid()) @map("_id")
   matchId   String
   senderId  String
   content   String
@@ -129,4 +172,34 @@ model Message {
 
   match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
   sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([matchId, createdAt])
+  @@index([senderId])
 }
+
+model AvatarFile {
+  id          String   @id @map("_id")
+  userId      String
+  contentType String
+  size        Int
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@map("AvatarFile")
+}
+
+model OAuthAccount {
+  id                String   @id @default(uuid()) @map("_id")
+  provider          String
+  providerAccountId String
+  userId            String
+  createdAt         DateTime @default(now())
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("OAuthAccount")
+}
+

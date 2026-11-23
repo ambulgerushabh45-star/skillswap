@@ -1,0 +1,43 @@
+# Render Blueprint for SkillSwap
+# Complete infrastructure definition for deploying SkillSwap Express + React (Vite)
+# on Render.com free tier paired with MongoDB Atlas.
+#
+# Single Instance Constraint:
+# The application uses in-memory rate limiting and in-memory Nominatim geocode caching.
+# Deploy only 1 instance (default on free tier). Multi-instance requires external Redis.
+
+services:
+  - type: web
+    name: skillswap
+    env: node
+    plan: free
+    region: oregon # Fast US-West region matching standard MongoDB Atlas AWS us-west-2 clusters
+    buildCommand: npm --prefix server install && npm --prefix client install && npx --prefix server prisma generate --schema=prisma/schema.prisma && npm --prefix client run build
+    startCommand: node scripts/start.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URL
+        sync: false # Set in Render Dashboard: your MongoDB Atlas mongodb+srv:// connection string
+      - key: JWT_SECRET
+        generateValue: true # Render automatically generates a secure cryptographic 32-character secret
+      - key: ALLOWED_ORIGINS
+        sync: false # Set in Render Dashboard to your production URL, e.g. https://skillswap.onrender.com
+      - key: TRUST_PROXY
+        value: "true" # Enables X-Forwarded-For processing behind Render reverse proxy
+      - key: AVATAR_STORAGE
+        value: mongo # Persists avatars as binary documents in MongoDB (ephemeral disk safe)
+      - key: NOMINATIM_USER_AGENT
+        sync: false # Set in Render Dashboard to a valid identifying email per Nominatim policy
+      - key: PUBLIC_URL
+        sync: false # Set in Render Dashboard to exact live site URL, e.g. https://skillswap.onrender.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false # Optional: Google Cloud OAuth 2.0 Web Client ID
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false # Optional: Google Cloud OAuth 2.0 Web Client Secret
+      - key: RESEND_API_KEY
+        sync: false # Optional: Resend API Key (re_...) for email notifications
+      - key: EMAIL_FROM
+        sync: false # Optional: Sender address on a verified Resend domain, e.g. notifications@yourdomain.com
+      # NOTE: RATE_LIMIT_DISABLED is intentionally omitted so production rate limits remain active.
