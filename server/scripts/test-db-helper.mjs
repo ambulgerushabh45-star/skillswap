@@ -3,6 +3,7 @@
 // Creates "<main>_test_<timestamp>" databases and guarantees drops only on "_test_".
 
 import { execSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
@@ -11,6 +12,7 @@ import config from '../src/config/env.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..', '..');
+const sqlitePath = path.resolve(rootDir, 'prisma', 'dev.db');
 
 export function getScratchDbInfo() {
   const mainDbName = config.DB_NAME;
@@ -39,12 +41,21 @@ export async function createScratchDatabase({ loadData = true } = {}) {
   });
 
   if (loadData) {
-    execSync(`node server/scripts/migrate-sqlite-to-mongo.mjs --apply "--target-url=${testMongoUrl}"`, {
-      cwd: rootDir,
-      env: { ...process.env, MONGODB_URL: testMongoUrl },
-      stdio: 'ignore',
-    });
-    console.log(`[ScratchDB] Loaded 81 baseline records into: ${testDbName}`);
+    if (fs.existsSync(sqlitePath)) {
+      execSync(`node server/scripts/migrate-sqlite-to-mongo.mjs --apply "--target-url=${testMongoUrl}"`, {
+        cwd: rootDir,
+        env: { ...process.env, MONGODB_URL: testMongoUrl },
+        stdio: 'ignore',
+      });
+      console.log(`[ScratchDB] Loaded 81 baseline records into: ${testDbName}`);
+    } else {
+      execSync(`node server/scripts/seed.mjs`, {
+        cwd: rootDir,
+        env: { ...process.env, MONGODB_URL: testMongoUrl },
+        stdio: 'ignore',
+      });
+      console.log(`[ScratchDB] Seeded baseline records into: ${testDbName}`);
+    }
   }
 
   return { testDbName, testMongoUrl };

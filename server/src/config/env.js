@@ -32,6 +32,11 @@ function loadEnvFile() {
 
 loadEnvFile();
 
+// Support MONGODB_URI as a fallback alias for MONGODB_URL
+if (!process.env.MONGODB_URL && process.env.MONGODB_URI) {
+  process.env.MONGODB_URL = process.env.MONGODB_URI;
+}
+
 const rawEnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   MONGODB_URL: z.string().refine(

@@ -19,7 +19,7 @@
 # Local SQLite databases
 *.db
 *.db-journal
-prisma/dev.db
+!prisma/dev.db
 
 # OS / IDE temp files
 .DS_Store
