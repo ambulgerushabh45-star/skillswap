@@ -29,7 +29,10 @@ async function runSmokeCheck() {
     assert(res.status === 200, `GET / returns status 200 (got ${res.status})`);
     const text = await res.text();
     assert(text.includes('id="root"'), 'GET / HTML contains <div id="root">');
-    assert(text.includes('/src/main.jsx'), 'GET / HTML includes main.jsx script');
+    assert(
+      text.includes('/src/main.jsx') || text.includes('/assets/'),
+      'GET / HTML includes client script'
+    );
   } catch (err) {
     assert(false, `GET / connection failed: ${err.message}`);
   }

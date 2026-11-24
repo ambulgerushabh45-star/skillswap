@@ -142,9 +142,17 @@ jobs:
         run: |
           node server/src/index.js &
           SERVER_PID=$!
-          sleep 3
+          cleanup() {
+            kill $SERVER_PID 2>/dev/null || true
+            wait $SERVER_PID 2>/dev/null || true
+            sleep 1
+          }
+          trap cleanup EXIT
+          for i in {1..30}; do
+            curl -fsS http://localhost:4000/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
           node server/scripts/foundation-check.mjs
-          kill $SERVER_PID
 
       - name: Run Client Smoke & Feature Verification (Vite Preview + Express)
         run: |
@@ -152,12 +160,19 @@ jobs:
           SERVER_PID=$!
           npm --prefix client run preview &
           CLIENT_PID=$!
-          sleep 4
+          cleanup() {
+            kill $CLIENT_PID $SERVER_PID 2>/dev/null || true
+            wait $CLIENT_PID $SERVER_PID 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for i in {1..30}; do
+            curl -fsS http://localhost:4000/api/health >/dev/null 2>&1 && \
+            curl -fsS http://localhost:5173/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
           node client/scripts/smoke-check.mjs
           node client/scripts/m4a-check.mjs
           node client/scripts/m4b-check.mjs
-          kill $CLIENT_PID
-          kill $SERVER_PID
         env:
           PORT: 4000
           CLIENT_URL: http://localhost:5173
