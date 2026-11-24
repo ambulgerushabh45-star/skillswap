@@ -47,6 +47,7 @@ scripts/snapshots/
 storage/
 public/uploads/avatars/*
 !public/uploads/avatars/.gitkeep
+!public/uploads/avatars/*.webp
 
 # Backups and scratch storage
 backups/

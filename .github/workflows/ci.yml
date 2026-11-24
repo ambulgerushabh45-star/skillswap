@@ -127,8 +127,10 @@ jobs:
       - name: Push Prisma schema to MongoDB
         run: npm --prefix server exec -- prisma db push --skip-generate --schema=prisma/schema.prisma
 
-      - name: Seed Database
-        run: npm --prefix server run seed
+      - name: Seed Database (Baseline Data & Avatars)
+        run: |
+          node server/scripts/migrate-sqlite-to-mongo.mjs --apply
+          node server/scripts/migrate-avatars-to-db.mjs --apply
 
       - name: Run Server Check Suite (run-checks.mjs)
         run: npm run check

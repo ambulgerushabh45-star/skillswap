@@ -47,6 +47,15 @@ export async function createScratchDatabase({ loadData = true } = {}) {
         env: { ...process.env, MONGODB_URL: testMongoUrl },
         stdio: 'ignore',
       });
+      try {
+        execSync(`node server/scripts/migrate-avatars-to-db.mjs --apply`, {
+          cwd: rootDir,
+          env: { ...process.env, MONGODB_URL: testMongoUrl },
+          stdio: 'ignore',
+        });
+      } catch {
+        // avatar migration optional
+      }
       console.log(`[ScratchDB] Loaded 81 baseline records into: ${testDbName}`);
     } else {
       execSync(`node server/scripts/seed.mjs`, {
