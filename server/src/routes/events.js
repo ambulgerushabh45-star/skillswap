@@ -336,6 +336,25 @@ router.post('/:id/cancel', requireSession, async (req, res) => {
   }
 });
 
+const eventLocks = new Map();
+
+function withEventLock(eventId, fn) {
+  const prev = eventLocks.get(eventId) || Promise.resolve();
+  let resolveCurrent;
+  const current = new Promise((resolve) => {
+    resolveCurrent = resolve;
+  });
+  eventLocks.set(eventId, current);
+  return prev
+    .then(fn)
+    .finally(() => {
+      resolveCurrent();
+      if (eventLocks.get(eventId) === current) {
+        eventLocks.delete(eventId);
+      }
+    });
+}
+
 // POST /api/events/:id/rsvp (RSVP with Capacity & Cancel Checks - P3.5)
 router.post('/:id/rsvp', requireSession, async (req, res) => {
   try {
@@ -350,98 +369,100 @@ router.post('/:id/rsvp', requireSession, async (req, res) => {
     }
     const { id: eventId } = parsedParams.data;
 
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      select: { id: true, hostId: true, maxAttendees: true, cancelledAt: true },
-    });
-
-    if (!event) {
-      return sendNotFound(res, 'Event not found');
-    }
-
-    if (event.cancelledAt) {
-      return sendConflict(res, 'This event has been cancelled.');
-    }
-
-    const existing = await prisma.eventAttendee.findUnique({
-      where: {
-        eventId_userId: {
-          eventId,
-          userId: req.user.id,
-        },
-      },
-    });
-
-    if (existing && existing.status === 'GOING') {
-      // Toggle to CANCELLED — always allowed, never blocked by capacity
-      await prisma.eventAttendee.update({
-        where: { id: existing.id },
-        data: { status: 'CANCELLED' },
+    return await withEventLock(eventId, async () => {
+      const event = await prisma.event.findUnique({
+        where: { id: eventId },
+        select: { id: true, hostId: true, maxAttendees: true, cancelledAt: true },
       });
-      return res.status(200).json({ message: 'RSVP cancelled', isGoing: false });
-    }
 
-    // Pre-check capacity before write
-    if (event.maxAttendees !== null) {
-      const currentGoing = await prisma.eventAttendee.count({
-        where: { eventId, status: 'GOING' },
-      });
-      if (currentGoing >= event.maxAttendees) {
-        return sendConflict(res, 'This event is full.');
+      if (!event) {
+        return sendNotFound(res, 'Event not found');
       }
-    }
 
-    // Joining as GOING — insert or update
-    let attendee;
-    if (existing) {
-      attendee = await prisma.eventAttendee.update({
-        where: { id: existing.id },
-        data: { status: 'GOING' },
-      });
-    } else {
-      attendee = await prisma.eventAttendee.create({
-        data: {
-          eventId,
-          userId: req.user.id,
-          status: 'GOING',
+      if (event.cancelledAt) {
+        return sendConflict(res, 'This event has been cancelled.');
+      }
+
+      const existing = await prisma.eventAttendee.findUnique({
+        where: {
+          eventId_userId: {
+            eventId,
+            userId: req.user.id,
+          },
         },
       });
-    }
 
-    // Post-write recount with deterministic compensation under concurrency
-    if (event.maxAttendees !== null) {
-      const allGoing = await prisma.eventAttendee.findMany({
-        where: { eventId, status: 'GOING' },
-        select: { id: true, userId: true },
-      });
-
-      if (allGoing.length > event.maxAttendees) {
-        // Deterministic priority: host always first, then lowest attendee IDs
-        const sorted = allGoing.sort((a, b) => {
-          if (a.userId === event.hostId) return -1;
-          if (b.userId === event.hostId) return 1;
-          return a.id.localeCompare(b.id);
+      if (existing && existing.status === 'GOING') {
+        // Toggle to CANCELLED — always allowed, never blocked by capacity
+        await prisma.eventAttendee.update({
+          where: { id: existing.id },
+          data: { status: 'CANCELLED' },
         });
-        const allowedIds = new Set(sorted.slice(0, event.maxAttendees).map((a) => a.id));
+        return res.status(200).json({ message: 'RSVP cancelled', isGoing: false });
+      }
 
-        if (!allowedIds.has(attendee.id)) {
-          // Revert/compensate oversubscribed attendee
-          if (existing) {
-            await prisma.eventAttendee.update({
-              where: { id: existing.id },
-              data: { status: existing.status },
-            });
-          } else {
-            await prisma.eventAttendee.delete({
-              where: { id: attendee.id },
-            });
-          }
+      // Pre-check capacity before write
+      if (event.maxAttendees !== null) {
+        const currentGoing = await prisma.eventAttendee.count({
+          where: { eventId, status: 'GOING' },
+        });
+        if (currentGoing >= event.maxAttendees) {
           return sendConflict(res, 'This event is full.');
         }
       }
-    }
 
-    return res.status(200).json({ message: 'RSVP confirmed!', isGoing: true });
+      // Joining as GOING — insert or update
+      let attendee;
+      if (existing) {
+        attendee = await prisma.eventAttendee.update({
+          where: { id: existing.id },
+          data: { status: 'GOING' },
+        });
+      } else {
+        attendee = await prisma.eventAttendee.create({
+          data: {
+            eventId,
+            userId: req.user.id,
+            status: 'GOING',
+          },
+        });
+      }
+
+      // Post-write recount with deterministic compensation under concurrency
+      if (event.maxAttendees !== null) {
+        const allGoing = await prisma.eventAttendee.findMany({
+          where: { eventId, status: 'GOING' },
+          select: { id: true, userId: true },
+        });
+
+        if (allGoing.length > event.maxAttendees) {
+          // Deterministic priority: host always first, then lowest attendee IDs
+          const sorted = allGoing.sort((a, b) => {
+            if (a.userId === event.hostId) return -1;
+            if (b.userId === event.hostId) return 1;
+            return a.id.localeCompare(b.id);
+          });
+          const allowedIds = new Set(sorted.slice(0, event.maxAttendees).map((a) => a.id));
+
+          if (!allowedIds.has(attendee.id)) {
+            // Revert/compensate oversubscribed attendee
+            if (existing) {
+              await prisma.eventAttendee.update({
+                where: { id: existing.id },
+                data: { status: existing.status },
+              });
+            } else {
+              await prisma.eventAttendee.delete({
+                where: { id: attendee.id },
+              });
+            }
+            return sendConflict(res, 'This event is full.');
+          }
+        }
+      }
+
+      return res.status(200).json({ message: 'RSVP confirmed!', isGoing: true });
+    });
   } catch (error) {
     return sendInternalError(res, error, 'Failed to update RSVP');
   }
